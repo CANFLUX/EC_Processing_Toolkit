@@ -17,7 +17,7 @@ thisDir = os.path.abspath(os.path.split(__file__)[0])
 
 class myProject():
     def __init__(self,projectPath):
-        with open(f'{thisDir}/config_files/standardInputFileInfo.yml') as yml:
+        with open(f'{thisDir}/config_files/standardFileFormats.yml') as yml:
             self.standardInputFileInfo = yaml.safe_load(yml)
         self.projectPath = os.path.abspath(projectPath)
         self.rawPath = os.path.abspath(f"{self.projectPath}/rawSiteData")
