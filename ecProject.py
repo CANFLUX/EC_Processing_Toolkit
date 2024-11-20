@@ -182,11 +182,11 @@ class importData(myProject):
                     print(f'add case for {file.rsplit(".",1)[-1]}')
             elif file.endswith('csv'):
                 pH = parseHoboCSV()
-                print(file)
                 pH.parse(file,mode=0)
-                print(pH.mode)
-            else:
-                print(f'add case for {file.rsplit(".",1)[-1]}')
+                if pH.mode >= 0:
+                    self.compareMetadata(pH.Metadata,file)
+                else:
+                    print(f'add case for {file.rsplit(".",1)[-1]}')
         self.exportData()
             
     def compareMetadata(self,incoming,fpath):
