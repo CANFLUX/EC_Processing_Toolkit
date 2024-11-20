@@ -82,32 +82,32 @@ class progressbar():
     def close(self):
         print('\n')
 
-# def set_high_priority():
-#     p = psutil.Process(os.getpid())
-#     p.nice(psutil.HIGH_PRIORITY_CLASS)
+def set_high_priority():
+    p = psutil.Process(os.getpid())
+    p.nice(psutil.HIGH_PRIORITY_CLASS)
 
-# def pasteWithSubprocess(source, dest, option = 'copy',Verbose=False,pb=None):
-#     set_high_priority()
-#     cmd=None
-#     source = os.path.abspath(source)
-#     dest = os.path.abspath(dest)
-#     if sys.platform.startswith("darwin"): 
-#         # These need to be tested/flushed out
-#         if option == 'copy' or option == 'xcopy':
-#             cmd=['cp', source, dest]
-#         elif option == 'move':
-#             cmd=['mv',source,dest]
-#     elif sys.platform.startswith("win"): 
-#         cmd=[option, source, dest]
-#         if option == 'xcopy':
-#             cmd.append('/s')
-#     if cmd:
-#         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-#     if pb is not None:
-#         pb.step(msg=f"{source}")
+def pasteWithSubprocess(source, dest, option = 'copy',Verbose=False,pb=None):
+    set_high_priority()
+    cmd=None
+    source = os.path.abspath(source)
+    dest = os.path.abspath(dest)
+    if sys.platform.startswith("darwin"): 
+        # These need to be tested/flushed out
+        if option == 'copy' or option == 'xcopy':
+            cmd=['cp', source, dest]
+        elif option == 'move':
+            cmd=['mv',source,dest]
+    elif sys.platform.startswith("win"): 
+        cmd=[option, source, dest]
+        if option == 'xcopy':
+            cmd.append('/s')
+    if cmd:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    if pb is not None:
+        pb.step(msg=f"{source}")
 
-#     if Verbose==True:
-#         print(proc)
+    if Verbose==True:
+        print(proc)
 
 if __name__ == '__main__':
     prefix = 'Test'

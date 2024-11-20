@@ -1,4 +1,21 @@
+
 # metdata for assorted file types, for the option to define how files are read in Pandas sed pdKwargs:
+
+supportedTypes:
+  # Possible file formats
+  # listed by extension
+  dat:
+  - TOB3
+  - TOA5
+  csv:
+  - HOBOcsv
+  ghg: 
+  - GHG
+
+
+HOBOcsv:
+
+
 GHG:
   # extension: ghg
   # tstamp_end: False
@@ -12,6 +29,7 @@ GHG:
   #   - -9999
   #   skiprows: 6
   #   header: 1
+
 
 TOA5:
   # extension: dat

@@ -12,7 +12,7 @@ Database:
       precision: 8
       base_unit: s
     Time_resolution: 30min
-rawSiteData:
+rawData:
   Purpose: Source files for the project, stored by with an inventory to track whether files have been dumped to the database.  Contents are organized by siteID, Type, Year, and Month, if timestamps are can be parsed from the filename or just siteID and Type if no time information available.
 config_files:
   Purpose: Configuration files
