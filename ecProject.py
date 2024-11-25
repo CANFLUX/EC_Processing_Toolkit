@@ -10,10 +10,14 @@ import getpass
 import datetime
 import numpy as np
 import pandas as pd
-from io import StringIO
 from pathlib import Path
-from parseTables.parseTOBA import parseTO
-from parseTables.parseHobo import parseHoboCSV
+import importlib
+from parseTables import parseTOBA, parseHobo,parseMixedArray
+from parseGHG import parseGHG
+importlib.reload(parseTOBA)
+importlib.reload(parseHobo)
+importlib.reload(parseMixedArray)
+importlib.reload(parseGHG)
 import helperFunctions as helper
 
 
@@ -47,28 +51,45 @@ class myProject():
             with open(fileInventory) as f:
                 self.fileInventory = json.load(f)
         else:
-            self.fileInventory = {'Pending':{},
-                                  'Processed':{}}
+            self.fileInventory = {'Processed':{},
+                                  'Pending':{},
+                                  'Failures':{}}
             
-    def unpackPath(self,fileSet):
+    def unpackPath(self,fileTree):
         # recursive function to unpack fileTree dict
         def unpack(child,parent=None,root=None):
-            pth = []
+            pth = {}
             if type(child) is dict:
                 for key,value in child.items():
                     if parent is None:
                         pass
                     else:
                         key = os.path.join(parent,key)
-                    if value!= []:
-                        pth = pth + unpack(value,key,root)
+                    if type(value) is list:
+                        pth[key] = unpack(value,key,root)
+                    else:
+                        pth = pth | unpack(value,key,root)
+
             else:
-                if type(child[0])==list:
-                    return([os.path.join(parent,c[0]) for c in child])
+                if type(child)==list:
+                    return(child)
                 else:
-                    return([os.path.join(parent,c) for c in child])
+                    sys.exit('Error in file tree unpack')
             return(pth)
-        return(unpack(fileSet))
+        return(unpack(fileTree))
+    
+    def repackPath(self,fileList,root=None):
+        if root == None:
+            root = self.root
+        fileTree = {}
+        fileTree[root] = {}
+        for file,info in fileList.items():
+            d,f = os.path.split(file)
+            d = d.lstrip(root).lstrip(os.sep) 
+            if d not in fileTree[root].keys():
+                fileTree[root][d] = {}
+            fileTree[root][d][f] = info
+        return(fileTree)
             
 class makeProject(myProject):
     def __init__(self,projectPath,safeMode=True):
@@ -84,7 +105,7 @@ class makeProject(myProject):
     
     def projectPathSetup(self):
         readme = f'# Readme\n\nCreated by {getpass.getuser()}\non {datetime.datetime.now()}\n'
-        for key,value in self.projectConfig.items():
+        for key,value in self.projectConfig['Directories'].items():
             os.makedirs(f"{self.projectPath}/{key}")
             readme+=f'\n\n## {key}\n\n* {value["Purpose"]}'
         with open(f"{self.projectPath}/README.md",'+w') as f:
@@ -92,25 +113,28 @@ class makeProject(myProject):
         with open(f"{self.projectPath}/projectConfig.yml",'+w') as f:
             yaml.dump(self.projectConfig, f, sort_keys=False)
 
-defaultArgs = {
-    # inputPath can be string e.g., C:/Datadump
-    # Or list of 2xn list of form [root,subdir] e.g, [C:/Datadump,20240731,C:/Datadump,20240831]
-    # Will map subdirectory structure to rawData folder, unless inputPath *is* raw data folder
-    # Then will assume data were copied manually and will set mode to map
-    'siteID':None,
-    'inputPath':[None,None],
-    'mode':'copy',#options: copy (copy files to), move (move files to), map (document existing files and create metadata without moving)
-    'fileType':[None],#optoinal: specify specific type(s) or search for all supported types
-    'searchTag':[],#optional: string pattern(s) in filenames **required** for import
-    'excludeTag':[],#optional: string pattern(s) in filenames to **prevent** import
-    }
-class importData(myProject):
+
+class importRawData(myProject):
     def __init__(self,projectPath,**kwargs):
         super().__init__(projectPath)
+        defaultArgs = {
+            # inputPath can be string e.g., C:/Datadump
+            # Or list of 2xn list of form [root,subdir] e.g, [C:/Datadump,20240731,C:/Datadump,20240831]
+            # Will map subdirectory structure to rawData folder, unless inputPath *is* raw data folder
+            # Then will assume data were copied manually and will set mode to map
+            'siteID':None,
+            'inputPath':[None,None],
+            'mode':'copy',#options: copy (copy files to), move (move files to), map (document existing files and create metadata without moving)
+            'fileType':[None],#optoinal: specify specific type(s) or search for all supported types
+            'searchTag':[],#optional: string pattern(s) in filenames **required** for import
+            'excludeTag':[],#optional: string pattern(s) in filenames to **prevent** import
+            }
         # Apply defaults where not defined
         kwargs = defaultArgs | kwargs
         # add arguments as class attributes
         for k, v in kwargs.items():
+            print(k,v)
+            print(defaultArgs)
             if type(defaultArgs[k])==list and (type(v) != list or len(v) == 1):
                 if type(v) == list: v = v[0]
                 defaultArgs[k][0] = v
@@ -132,7 +156,7 @@ class importData(myProject):
             sys.exit('Provide inputPath to continue')
         elif type(self.inputPath[0]) is str and self.inputPath[0].startswith(self.projectPath):
             self.mode = 'map'
-        self.fileList = self.unpackPath(self.fileInventory['Pending']) + self.unpackPath(self.fileInventory['Processed'])
+        self.fileList = list(self.unpackPath(self.fileInventory['Pending']).keys()) + list(self.unpackPath(self.fileInventory['Processed']).keys())
         for self.root,self.subdir in np.array(self.inputPath).reshape(-1,2):
             self.root = os.path.abspath(self.root)
             if self.subdir is None: self.subdir = ''
@@ -144,112 +168,152 @@ class importData(myProject):
                 self.filter()
             else:
                 self.root,f = os.path.split(inputPath)
-                self.fileTree[os.path.abspath(self.root)] = [[f,False,None]]
-        
+                self.fileTree[os.path.abspath(self.root)] = {f:[False,None]}
             self.Metadata = {'Files':[],
                             'Current':{},
                             'ID':{}}
-            self.getMetadata(self.fileTree)
-            if self.root in self.fileInventory['Pending'].keys():
-                for key,value in self.fileTree[self.root].items():
-                    if key not in self.fileInventory['Pending'][self.root].keys():
-                        self.fileInventory['Pending'][self.root][key] = value
-                    else:
-                        self.fileInventory['Pending'][self.root][key] = self.fileInventory['Pending'][self.root][key] + value
-            else:
-                self.fileInventory['Pending'][self.root] = self.fileTree[self.root]
+            self.getMetadata()
         with open(os.path.join(self.rawPath,'fileInventory.json'),'w+') as f:
             json.dump(self.fileInventory,f)
 
     def filter(self):
         for curDir, _, fileName in os.walk(self.root):
             if self.subdir in curDir:
-                self.fileTree[self.root][os.path.relpath(curDir, self.root)] = [[f,False,None] 
+                self.fileTree[self.root][os.path.relpath(curDir, self.root)] = {f:[False,None] 
                     for f in fileName if (sum(t in f for t in self.excludeTag) == 0 and 
                         sum(t in f for t in self.searchTag) == len(self.searchTag) and
                         os.path.join(curDir,f) not in self.fileList and
-                        f.rsplit('.',1)[1] in self.extensions)]
+                        f.rsplit('.',1)[1] in self.extensions)}
 
-    def getMetadata(self,fileSet):
-        fileList = self.unpackPath(fileSet)
-        for file in fileList:
+    def getMetadata(self):
+        self.fileTree = self.unpackPath(self.fileTree)
+        for file in self.fileTree.keys():
+            attempt = 0
             if file.endswith('dat'):
-                pT = parseTO()
-                pT.parse(file,mode=0)
-                if pT.mode >= 0:
-                    self.compareMetadata(pT.Metadata,file)
+                pT = parseTOBA.parseTOBA()
+                pT.parse(file,mode=1)
+                attempt += pT.mode
+                if pT.mode:
+                    self.exportData(pT.Metadata,file)
                 else:
-                    print(f'add case for {file.rsplit(".",1)[-1]}')
+                    pMA = parseMixedArray.parseMixedArray()
+                    pMA.parse(file,mode=1)
+                    if pMA.mode:
+                        self.exportData(pMA.Metadata,file)
+                    attempt += pMA.mode
+            elif file.endswith('ghg'):
+                pGHG = parseGHG.parseGHG()
+                pGHG.parse(file,mode=1)
+                attempt += pH.mode
+                if pGHG.mode:
+                    self.exportData(pGHG.Metadata,file)
             elif file.endswith('csv'):
-                pH = parseHoboCSV()
-                pH.parse(file,mode=0)
-                if pH.mode >= 0:
-                    self.compareMetadata(pH.Metadata,file)
+                pH = parseHobo.parseHoboCSV()
+                pH.parse(file,mode=1)
+                attempt += pH.mode
+                if pH.mode:
+                    self.exportData(pH.Metadata,file)
                 else:
                     print(f'add case for {file.rsplit(".",1)[-1]}')
-        self.exportData()
+        # self.exportData()
+        failures = {key:value for key,value in self.fileTree.items() if value[1] is None}
+        for f in failures.keys():
+            self.fileTree.pop(f)
+        if self.root not in self.fileInventory['Pending'].keys():
+            self.fileInventory['Pending'][self.root] = {}
+            self.fileInventory['Failures'][self.root] = {}
+        self.fileInventory['Pending'][self.root] = self.fileInventory['Pending'][self.root] | self.repackPath(self.fileTree)[self.root]
+        self.fileInventory['Failures'][self.root] = self.fileInventory['Failures'][self.root] | self.repackPath(failures)[self.root]
             
-    def compareMetadata(self,incoming,fpath):
-        if 'Timestamp' in incoming.keys():
-            Timestamp = incoming['Timestamp']
-            incoming.pop('Timestamp')      
-        if self.Metadata['Current'] == {}:
-            self.Metadata['Current'] = incoming
-            self.Metadata['Change'] = True
-        elif self.Metadata['Current'] == incoming:
-            self.Metadata['Change'] = False
-        else:
-            for key in self.Metadata['Current'].keys():
-                if self.Metadata['Current'][key] != incoming[key]:
-                    self.Metadata['Change'] = f'New{key}'
-                    break
-            if self.Metadata['Change'] == 'NewColumnHeaders':
-                a = set(self.Metadata['Current']['ColumnHeaders'])
-                b = set(incoming['ColumnHeaders'])
-                Change = self.Metadata['Change']
-                if len(a ^ b)==0:
-                    Change = Change+'_subHeaderOnly'
-                else:
-                    if set (set(a)- set(b)) and set (set(b)- set(a)):
-                        Change = Change+'_Add_and_Drop'
-                    elif set (set(a)- set(b)):
-                        Change = Change+'_Drop'
-                    elif set (set(a)- set(b)) and set (set(b)- set(a)):
-                        Change = Change+'_Add'
-                self.Metadata['Change'] = Change
-        if self.Metadata['Change']:
-            # Write "current" and move files before setting new
-            if self.Metadata['ID']!={}:
-                self.exportData()
-            if incoming['Table'] not in self.Metadata['ID'].keys():
-                self.Metadata['ID'] = {incoming['Table']:0}
-            else:
-                self.Metadata['ID'][incoming['Table']]+=1
-            self.MetadataID = self.Metadata['ID'][incoming['Table']]
-            self.Metadata['Current'] = incoming
-            self.Metadata['Files'] = [fpath]
-        else:
-            self.Metadata['Files'].append(fpath)
         
-    def exportData(self):
-        if len(self.Metadata['Files']):
-            subDir = os.path.relpath(os.path.split(self.Metadata['Files'][0])[0],self.root)
-            self.dest = os.path.join(
-                self.rawPath,
-                '' if self.siteID is None else self.siteID,
-                subDir,
-                f"{self.Metadata['Current']['Table']}_{self.MetadataID}"
-                )
+    def exportData(self,Metadata,file):
+        # if len(self.Metadata['Files']):
+            subDir = os.path.relpath(os.path.split(file)[0],self.root)
+            mdName = os.path.split(file)[-1].rsplit('.',1)[0]+f"_Metadata.yml"
+            self.dest = os.path.join(self.rawPath,'' if self.siteID is None else self.siteID,f"{Metadata['Table']}",subDir)
             if not os.path.isdir(self.dest):
-                os.makedirs(self.dest)            
-            with open(os.path.join(self.dest,'Metadata.yml'),'w+') as f:
-                yaml.dump(self.Metadata['Current'], f, sort_keys=False)
-                yaml.dump({'Imported':self.Metadata['Files']}, f, sort_keys=False)
+                os.makedirs(self.dest)   
+            with open(os.path.join(self.dest,mdName),'w+') as f:
+                yaml.dump(Metadata, f, sort_keys=False)
+                # yaml.dump({'Imported':self.Metadata['Files']}, f, sort_keys=False)
             
             if self.mode != 'map':
-                pb = helper.progressbar(len(self.Metadata['Files']))
-                for f in self.Metadata['Files']:
-                    helper.pasteWithSubprocess(f,self.dest,self.mode)
-                    pb.step()
-                pb.close()
+                # pb = helper.progressbar(len(self.Metadata['Files']))
+                # for f in self.Metadata['Files']:
+                self.fileTree[file][1] = mdName
+                helper.pasteWithSubprocess(file,self.dest,self.mode)
+                #     pb.step()
+                # pb.close()
         
+class syncMetadata(myProject):
+    def __init__(self,projectPath,**kwargs):
+        super().__init__(projectPath)
+        defaultArgs = {
+            'siteID':None,}
+        # Apply defaults where not defined
+        kwargs = defaultArgs | kwargs
+        # add arguments as class attributes
+        for k, v in kwargs.items():
+            if type(defaultArgs[k])==list and (type(v) != list or len(v) == 1):
+                if type(v) == list: v = v[0]
+                defaultArgs[k][0] = v
+                v = defaultArgs[k]
+            elif type(defaultArgs[k])==list and len(defaultArgs[k])>1 and (len(v)%len(defaultArgs[k])) != 0:
+                sys.exit('Input path must be string or 2xn list of form [root,subdir, ...] ')
+            setattr(self, k, v)
+        if self.siteID is not None:
+            self.rawPath = os.path.join(self.rawPath,self.siteID)
+
+        self.firstStage = {}
+        self.representativeFiles = {}
+        for d in os.listdir(self.rawPath):
+            self.representativeFiles[d] = {}
+            self.firstStage[d] = {}
+            mdFiles = []
+            for dpath,_,files in os.walk(os.path.join(self.rawPath,d)):
+                mdFiles = mdFiles + [os.path.join(dpath,f) for f in files if f.endswith('Metadata.yml')]
+            self.current = {}
+            for file in mdFiles:
+                with open(file,'r',encoding='utf-8') as f:
+                    if self.current == {}:
+                        self.setCurrent(yaml.safe_load(f))
+                        self.representativeFiles[d] = [file.lstrip(self.rawPath)]
+                    else:
+                        change = self.compareMetadata(yaml.safe_load(f))
+                        if change:
+                            print(change)
+                            self.representativeFiles[d].append(file.lstrip(self.rawPath))
+                    
+    def setCurrent(self,new):
+        self.current = new
+        if 'Timestamp' in self.current.keys():
+            self.startTime = self.current['Timestamp']
+            self.current.pop('Timestamp')
+    
+    def compareMetadata(self,incoming):
+        change = False
+        if 'Timestamp' in incoming.keys():
+            timestamp = incoming['Timestamp']
+            incoming.pop('Timestamp')
+        if incoming == self.current:
+            return(change)
+        else:
+            for key in self.current.keys():
+                if self.current[key] != incoming[key]:
+                    change = key
+                    break
+            if change == 'Header':
+                a = set(self.current['Header'])
+                b = set(incoming['Header'])
+                if len(a ^ b)==0:
+                    change = change+'_subHeaderOnly'
+                else:
+                    if set (set(a)- set(b)) and set (set(b)- set(a)):
+                        change = change+'_Add_and_Drop'
+                    elif set (set(a)- set(b)):
+                        change = change+'_Drop'
+                    elif set (set(b)- set(a)):
+                        change = change+'_Add'
+                    else:
+                        print('unknown exception')
+            return(change)

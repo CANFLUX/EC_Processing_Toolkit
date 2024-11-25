@@ -1,3 +1,6 @@
 [submodule "parseTables"]
 	path = parseTables
 	url = https://github.com/gsc-permafrost/parseTables
+[submodule "parseGHG"]
+	path = parseGHG
+	url = https://github.com/CANFLUX/parseGHG
