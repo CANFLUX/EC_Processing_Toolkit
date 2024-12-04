@@ -6,7 +6,13 @@ import argparse
 import subprocess
 import pandas as pd
 
-## Progress bar to update status of a run
+def updateDict(base,new):
+    for key,value in new.items():
+        if type(base) is dict and key not in base.keys():
+            base[key]=value
+        elif type(value) is dict:
+            base[key] = updateDict(base[key],value)
+    return(base) 
 
 def lists2DataFrame(**kwargs):
     df = pd.DataFrame(data = {key:val for key,val in kwargs.items()})
