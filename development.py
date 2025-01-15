@@ -30,7 +30,7 @@ class project:
     # elements of the current project
     aliases: dict = field(default_factory=dict)
     database: dict = field(default_factory=lambda:{'__Year__':{'__siteID__':{}}})
-    rawData: dict = field(default_factory=lambda:{'__siteID__':{'files':{},'metadata':['fileInventory.json','metadata.yml','changeLog.yml']}})
+    rawData: dict = field(default_factory=lambda:{'__siteID__':{'files':{},'metadata':['fileInventory.json','groupID.json','metadata.yml','changeLog.yml']}})
     configFiles: dict = field(default_factory=lambda:{'__siteID__':{'test':['a.json','b.json']}})
     # project configurations
     Verbose: bool = False
@@ -150,18 +150,19 @@ class fileInventory:
         }
         self.entry = helper.packDict(self.entry)
 
-
 class Parse(rawData):
     def __init__(self,mode='find',**kwds):
         T1 = time.time()
         super().__init__(**kwds)
-        self.fileList = self.rawData[self.siteID[0]]['metadata']['fileInventory']
+        self.fileInventory = self.rawData[self.siteID[0]]['metadata']['fileInventory']
+        self.groupID = self.rawData[self.siteID[0]]['metadata']['groupID']
         self.Metadata = self.rawData[self.siteID[0]]['metadata']['metadata']
         self.changeLog = self.rawData[self.siteID[0]]['metadata']['changeLog']
         if mode == 'find':
             self.readMetadata()
             self.copyFiles()
         elif mode == 'sync':
+            print('fix here to create raw and corrected values')
             for table in self.changeLog.keys():
                 for subType,Log in self.changeLog[table].items():
                     self.mdCorrect(Log,table,subType)
@@ -173,13 +174,16 @@ class Parse(rawData):
                             if not comp:
                                 self.Metadata[table][subType].pop(combo[1])
                                 print('fix here')
-                                self.fileList[table][subType][combo[0]] += self.fileList[table][subType].pop(combo[1])
+                                for key in self.groupID[table][subType][combo[1]]:
+                                    self.fileInventory[table][subType][key]['groupID'] = combo[0]
+                                newValues = self.groupID[table][subType].pop(combo[1])
+                                self.groupID[table][subType][combo[0]].append(newValues)
                                 if self.Verbose: print('Removing',combo[1])
             self.saveProject()
         print('Parsing Completed in ', np.round(time.time()-T1,1),' seconds')
 
     def readMetadata(self):                
-        print('Consider fixing to allow multi-site imports with on call?')
+        print('Consider fixing to allow multi-site imports with one call?')
         for file in self.importFileList:
             for fileParser in self.fileParsers[file.rsplit('.')[-1]]:
                 fileParser.parse(file)
@@ -224,20 +228,28 @@ class Parse(rawData):
                         if change:
                             self.Metadata[fileType][fileSubType][ID] = copy.deepcopy(fileMetadata)
                             self.changeLog[fileType][fileSubType][ID] = copy.deepcopy(change)
-                    if fileType in self.fileList.keys() and fileSubType in self.fileList[fileType].keys() and ID in self.Metadata[fileType][fileSubType].keys():
+                    if fileType in self.fileInventory.keys() and fileSubType in self.fileInventory[fileType].keys() and ID in self.Metadata[fileType][fileSubType].keys():
                         tmp = fileInventory(name=os.path.join(fileType,fileSubType,filePath[-1]),ID=ID,source=filePath)
-                        helper.updateDict(self.fileList,tmp.entry,overwrite='append')
+                        helper.updateDict(self.fileInventory,tmp.entry,overwrite='append')
+                        idOut = helper.packDict({os.path.split(tmp.name)[0]+os.path.sep+tmp.ID:os.path.split(tmp.name)[1]})
+                        helper.updateDict(self.groupID,idOut,overwrite='append')
                     else:
                         tmp = fileInventory(name=os.path.join(fileType,fileSubType,filePath[-1]),ID=ID,source=filePath)
-                        helper.updateDict(self.fileList,tmp.entry,overwrite='append')
+                        helper.updateDict(self.fileInventory,tmp.entry,overwrite='append')
+                        idOut = helper.packDict({os.path.split(tmp.name)[0]+os.path.sep+tmp.ID:os.path.split(tmp.name)[1]})
+                        helper.updateDict(self.groupID,idOut,overwrite='append')
                     break
 
     def mdCorrect(self,log,table,subType):
+        print(log)
+        print(table)
+        print(subType)
         for incoming,comp in log.items():
+            print(incoming,comp)
             if comp is None:
                 pass
             else:
-                if 'values_changed' in comp.keys():
+                if 'values_changed' in comp.keys() and incoming in self.Metadata[table][subType].keys():
                     self.base = helper.unpackDict(self.Metadata[table][subType][incoming])
                     self.makeChange(helper.unpackDict(comp['values_changed']))
                     self.Metadata[table][subType][incoming] = helper.packDict(self.base)
@@ -255,7 +267,7 @@ class Parse(rawData):
             if not changes[accept]:
                 # Overwrite "erroneous" change picked up with autodetection with old value
                 self.chg = True
-                if self.Verbose: print('overwriting ',old.rsplit(os.path.sep,1)[0], ' of ',changes[old],' with ',changes[old])
+                if self.Verbose: print('overwriting ',old.rsplit(os.path.sep,1)[0], ' of ',changes[new],' with ',changes[old])
                 self.base[old.rsplit(os.path.sep,1)[0]]= changes[old]
             elif self.base[new.rsplit(os.path.sep,1)[0]]!= changes[new]:
                 # Overwriting with user defined values which diverge from an autodetected change
@@ -266,9 +278,8 @@ class Parse(rawData):
                 if self.Verbose: print('Accepting changes in ',old.rsplit(os.path.sep,1)[0], ' from ',changes[old],' to ',changes[new])
 
     def copyFiles(self):
-        self.fileList = helper.unpackDict(self.rawData[self.siteID[0]]['metadata']['fileInventory'],limit=1)
-        print(self.fileList)
-        for subdir,fileInfo in self.fileList.items():
+        self.fileInventory = helper.unpackDict(self.fileInventory,limit=1)
+        for subdir,fileInfo in self.fileInventory.items():
             for file,info in fileInfo.items():
                 source = os.path.sep.join(info['dataSource'])
                 if self.importRoot is not None:

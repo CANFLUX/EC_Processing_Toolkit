@@ -10,13 +10,25 @@ import subprocess
 import pandas as pd
 
 
-def sorted_nicely( l ): 
+def sorted_nicely(l): 
     # credit: https://stackoverflow.com/a/2669120/5683778
+    # sort an alphanumeric list alphabetically for text but numerically for digits
     convert = lambda text: int(text) if text.isdigit() else text 
     alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
     return sorted(l, key = alphanum_key)
 
+def findNestedValue(element,nest,delimiter=os.path.sep):
+    # get value of nested in a dict by providing a string of keys separated by delimiter (defaults to path)
+    # e.g., findNestedValue(element 'a.b', nest = {'a':{'b':'c'}}, delimiter = '.') returns 'b'
+    keys = element.split(delimiter)
+    rv = nest
+    for key in keys:
+        rv = rv[key]
+    return rv
+
+
 def loadDict(file):
+    # read a dict from file in either .json or .yml format
     out = None
     if os.path.isfile(file):
         if file.endswith('.yml'):
@@ -30,6 +42,7 @@ def loadDict(file):
     return(out)
 
 def saveDict(obj,outputPath):
+    # save a dict (obj) to a file (outputPath) in either .json or .yml format
     if not os.path.isdir(os.path.split(outputPath)[0]):
         os.makedirs(os.path.split(outputPath)[0])
     with open(outputPath,'w') as file:
@@ -119,6 +132,7 @@ def unpackDict(Tree,format=os.path.sep,limit=None):
     return(unpack(Tree,format=format,limit=limit))
 
 def packDict(itemList,format=os.path.sep,limit=None,order=-1,fill=None):
+    # recursive function to generate nested dict from list of strings, splitting by sep
     Tree = {}
     if type(itemList) is list:
         if fill == 'key':
@@ -156,14 +170,8 @@ def packDict(itemList,format=os.path.sep,limit=None,order=-1,fill=None):
         Tree = updateDict(Tree,subTree,overwrite='append')
     return(Tree)
 
-def findNestedValue(element,nest,delimiter=os.path.sep):
-    keys = element.split(delimiter)
-    rv = nest
-    for key in keys:
-        rv = rv[key]
-    return rv
-
 def updateDict(base,new,overwrite=False):
+    # more comprehensive way to update items in a nested dict
     for key,value in new.items():
         if type(base) is dict and key not in base.keys():
             base[key]=value
@@ -186,6 +194,7 @@ def updateDict(base,new,overwrite=False):
     return(base) 
 
 def lists2DataFrame(**kwargs):
+    # convert a sequence of named list arguments to a dataframe
     df = pd.DataFrame(data = {key:val for key,val in kwargs.items()})
     if 'index' in df.columns:
         df = df.set_index('index',drop=True)
@@ -203,6 +212,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def getCMD(defaultArgs):
+    # helper function to parse command line arguments
     CLI=argparse.ArgumentParser()
     dictArgs = []
     for key,val in defaultArgs.items():
@@ -232,6 +242,7 @@ def getCMD(defaultArgs):
     return(kwargs)
 
 class progressbar():
+    # simple progress bar function with text display
     def __init__(self,items,prefix='',size=60,out=sys.stdout):
         self.nItems = items
         self.out = out
